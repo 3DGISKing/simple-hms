@@ -44,6 +44,7 @@ df = compute_design_hydrograph(
     p2_24hr_mm=50,
     timestep_min=15,
 )
+# Optional: base_flow_m3s, base_flow_recession_k_min for constant or recession base flow
 # df columns: time_min, flow_m3s, rainfall_mm, excess_mm
 plot_hydrograph(df, output_path="outputs/hydrograph.png")
 ```
@@ -73,7 +74,7 @@ df, flood_raster, watershed = compute_design_flood_map(
 
 Run `python example.py gui` or use the **Python: GUI** launch config in VS Code (F5).
 
-- **Inputs:** DEM path, CN path, outlet X/Y, design depth, duration, stage (m)
+- **Inputs:** DEM path, CN path, outlet X/Y, design depth, duration, stage (m), base flow (optional)
 - **Map layers:** Toggle DEM, watershed, stream network, inundation visibility
 - **Progress:** Determinate progress bar during pipeline run
 - **Outputs:** Layered map (left) + hydrograph (right)
@@ -111,7 +112,7 @@ export_stream_network_geojson(ws, "outputs/stream_network.geojson", dem_path="da
 ## Project Structure
 
 ```
-hypothetical-storm/
+simple-hms/
 ├── src/
 │   ├── watershed.py      # DEM conditioning, delineation, stream network, Tc, GeoJSON export
 │   ├── rainfall.py       # Design storm temporal distribution
@@ -149,17 +150,16 @@ This project follows the same conceptual model as HEC-HMS Hypothetical Storm. Th
 |-------------------|--------------|-------|
 | **Loss** | SCS Curve Number (`runoff.py`) | Same method: S = 25400/CN − 254, Ia = 0.2S, cumulative excess via (P − Ia)²/(P − Ia + S). Area-weighted CN from raster within watershed. |
 | **Transform** | SCS Unit Hydrograph (`unit_hydrograph.py`) + convolution | Same method: dimensionless SCS UH, lag from Tc (TR-55), peak rate factor (default 484). Convolve excess rainfall with UH to get direct runoff. |
-| **Base Flow** | Not implemented | Output is direct runoff only. No recession, constant monthly, or other base flow. Add base flow externally if needed. |
+| **Base Flow** | Optional (`base_flow_m3s`, `base_flow_recession_k_min`) | Constant or exponential recession base flow added to direct runoff. |
 
 ### Differences
 
 - **Loss**: Single area-weighted CN for the whole watershed; HEC-HMS can use subbasins with different CNs.
 - **Transform**: Single SCS UH for the watershed; HEC-HMS supports Clark, Snyder, and other transform methods.
-- **Base Flow**: Omitted; design storms typically focus on peak flow from direct runoff.
+- **Base Flow**: Optional; pass `base_flow_m3s` and optionally `base_flow_recession_k_min` for constant or exponential recession.
 
 ### Limitations
 
-- **No base flow** — output is direct runoff only.
 - **Single watershed** — no subbasin routing; one lumped CN and one UH for the whole catchment.
 - **Tc simplified** — TR-55-style estimate from area/slope; no full flow-path tracing.
 - **No Green-Ampt / other loss methods** — SCS CN only.

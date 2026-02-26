@@ -41,16 +41,25 @@ def run_synthetic_example():
         prf=484,
     )
     flow = np.convolve(excess, uh, mode="full")
-    print(f"  Peak flow: {flow.max():.2f} m³/s")
+    print(f"  Peak direct runoff: {flow.max():.2f} m³/s")
 
-    # Build DataFrame and plot
+    # Add optional base flow (constant or recession)
+    base_flow_m3s = 0.5
+    base_flow_recession_k_min = 360  # 6 hr e-folding
     n = max(len(hyetograph), len(flow))
     time_min = np.arange(n, dtype=float) * timestep_min
+    base_flow = base_flow_m3s * np.exp(-time_min / base_flow_recession_k_min)
+    flow_total = np.pad(flow, (0, n - len(flow)), constant_values=0) + base_flow
+    print(f"  Base flow: Q0={base_flow_m3s} m³/s, recession_k={base_flow_recession_k_min} min")
+    print(f"  Peak total flow: {flow_total.max():.2f} m³/s")
+
+    # Build DataFrame and plot
     df = pd.DataFrame({
         "time_min": time_min,
-        "flow_m3s": np.pad(flow, (0, n - len(flow)), constant_values=0),
+        "flow_m3s": flow_total,
         "rainfall_mm": np.pad(hyetograph, (0, n - len(hyetograph)), constant_values=0),
         "excess_mm": np.pad(excess, (0, n - len(excess)), constant_values=0),
+        "base_flow_m3s": base_flow,
     })
     from src.plot import plot_hydrograph
     plot_hydrograph(df, output_path="outputs/hydrograph_synthetic.png")
@@ -126,6 +135,8 @@ def run_full_example(dem_path: str, cn_path: str, outlet_x: float, outlet_y: flo
         pattern="type2",
         p2_24hr_mm=50,
         timestep_min=15,
+        base_flow_m3s=0.3,
+        base_flow_recession_k_min=None,  # constant base flow
     )
     peak_idx = df["flow_m3s"].idxmax()
     print("First 10 rows (early storm; flow=0 until excess rainfall exceeds Ia):")

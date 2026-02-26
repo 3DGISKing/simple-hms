@@ -66,9 +66,15 @@ def plot_hydrograph(
     ax_rain.grid(True, alpha=0.3)
     ax_rain.set_title("Rainfall & Excess Rainfall")
 
-    # Bottom: flow (line)
-    ax_flow.plot(t, flow, color="#C62828", linewidth=2, label="Flow")
-    ax_flow.fill_between(t, 0, flow, color="#C62828", alpha=0.2)
+    # Bottom: flow (line); optionally show base flow if present
+    if "base_flow_m3s" in df.columns:
+        base_flow = np.asarray(df["base_flow_m3s"])
+        ax_flow.plot(t, base_flow, color="#5D4037", linewidth=1.5, linestyle="--", label="Base flow")
+        ax_flow.plot(t, flow, color="#C62828", linewidth=2, label="Total flow")
+        ax_flow.fill_between(t, base_flow, flow, color="#C62828", alpha=0.2)
+    else:
+        ax_flow.plot(t, flow, color="#C62828", linewidth=2, label="Flow")
+        ax_flow.fill_between(t, 0, flow, color="#C62828", alpha=0.2)
 
     ax_flow.set_xlabel("Time (min)")
     ax_flow.set_ylabel("Flow (m³/s)")

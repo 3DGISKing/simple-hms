@@ -179,7 +179,7 @@ For design water level H: inundated cells = `HAND < H`; inundation depth = `H �
 - **Project structure:**
 
 ```
-hypothetical-storm/
+simple-hms/
 ├── src/
 │   ├── watershed.py      # DEM, delineation, stream network, Tc, GeoJSON export
 │   ├── rainfall.py       # Design storm, temporal distribution
@@ -343,8 +343,9 @@ def compute_design_hydrograph(
     dem_path: str, cn_path: str, outlet_x: float, outlet_y: float,
     design_depth_mm: float, duration_hr: float, pattern: str = 'type2',
     p2_24hr_mm: float = 50, timestep_min: int = 15, prf: float = 484,
-    snap_threshold: int = 500, watershed=None
-) -> pd.DataFrame  # columns: time_min, flow_m3s, rainfall_mm, excess_mm
+    snap_threshold: int = 500, watershed=None,
+    base_flow_m3s: float | None = None, base_flow_recession_k_min: float | None = None
+) -> pd.DataFrame  # columns: time_min, flow_m3s, rainfall_mm, excess_mm, [base_flow_m3s]
 ```
 
 ---
@@ -369,7 +370,8 @@ def compute_design_flood_map(
     dem_path, cn_path, outlet_x, outlet_y,
     design_depth_mm=100, duration_hr=24, pattern='type2',
     rating_curve=None, stage_m=None, p2_24hr_mm=50, timestep_min=15,
-    snap_threshold=500, output_path=None, progress_callback=None
+    snap_threshold=500, output_path=None, progress_callback=None,
+    base_flow_m3s=None, base_flow_recession_k_min=None
 ) -> tuple[pd.DataFrame, np.ndarray | None, WatershedResult]  # hydrograph, flood raster, watershed
 ```
 
@@ -377,7 +379,7 @@ def compute_design_flood_map(
 
 ### 8. Outputs
 
-- **CSV/DataFrame:** `time_min`, `flow_m3s`, optional `rainfall_mm`, `excess_mm`
+- **CSV/DataFrame:** `time_min`, `flow_m3s`, optional `rainfall_mm`, `excess_mm`, optional `base_flow_m3s`
 - **Plot:** Matplotlib time series (rainfall + hydrograph) via `plot_hydrograph()`
 - **HEC-HMS style:** Optional export of paired data (time, flow) for import into HEC-HMS or similar
 - **Flood map:** GeoTIFF of inundation extent or depth for design rainfall and duration
@@ -444,7 +446,7 @@ Interpolate for intermediate t/Tp. Time base ≈ 5×Tp.
 
 | Limitation | Possible Update | Effort |
 |------------|-----------------|--------|
-| **No base flow** | Add optional base flow (constant or recession) and add to direct runoff | Low |
+| ~~**No base flow**~~ | ~~Add optional base flow~~ **Implemented:** `base_flow_m3s`, `base_flow_recession_k_min` | Done |
 | **Single watershed** | Subdivide watershed into subbasins, route with Muskingum or lag, aggregate | Medium–High |
 | **Tc simplified** | Trace longest flow path, split into sheet/shallow/channel, use TR-55 formulas per segment | Medium |
 | **Other loss methods** | Add Green-Ampt, Initial & Constant, etc. as alternatives to SCS CN | Medium |
@@ -453,7 +455,7 @@ Interpolate for intermediate t/Tp. Time base ≈ 5×Tp.
 
 ### Suggested implementation order for enhancements
 
-1. **Base flow** — Add `base_flow_m3s` parameter or simple recession; add to hydrograph output.
+1. ~~**Base flow**~~ — **Done:** `base_flow_m3s`, `base_flow_recession_k_min`; constant or exponential recession.
 2. **Alternative loss/transform** — Add optional methods (e.g. Green-Ampt, Clark) behind a method selector.
 3. **Full Tc** — Trace longest flow path, segment into sheet/shallow/channel, apply TR-55 formulas.
 4. **Subbasins** — Subdivide watershed, route with Muskingum or lag, aggregate hydrographs.

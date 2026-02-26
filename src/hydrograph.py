@@ -13,6 +13,38 @@ from .watershed import compute_time_of_concentration, delineate_watershed
 logger = logging.getLogger(__name__)
 
 
+def _compute_base_flow(
+    n_timesteps: int,
+    timestep_min: int,
+    base_flow_m3s: float,
+    recession_k_min: float | None,
+) -> np.ndarray:
+    """
+    Compute base flow time series (constant or exponential recession).
+
+    Parameters
+    ----------
+    n_timesteps : int
+        Number of timesteps.
+    timestep_min : int
+        Timestep duration (minutes).
+    base_flow_m3s : float
+        Initial/base flow (m³/s).
+    recession_k_min : float or None
+        Recession time constant (minutes). If None, constant base flow.
+        Q(t) = Q0 * exp(-t / k).
+
+    Returns
+    -------
+    np.ndarray
+        Base flow (m³/s) per timestep.
+    """
+    if recession_k_min is None:
+        return np.full(n_timesteps, base_flow_m3s, dtype=float)
+    time_min = np.arange(n_timesteps, dtype=float) * timestep_min
+    return base_flow_m3s * np.exp(-time_min / recession_k_min)
+
+
 def compute_design_hydrograph(
     dem_path: str,
     cn_path: str,
@@ -26,6 +58,8 @@ def compute_design_hydrograph(
     prf: float = 484,
     snap_threshold: int = 500,
     watershed=None,
+    base_flow_m3s: float | None = None,
+    base_flow_recession_k_min: float | None = None,
 ) -> pd.DataFrame:
     """
     Compute design hydrograph from DEM, CN map, and design rainfall.
@@ -52,11 +86,16 @@ def compute_design_hydrograph(
         Peak rate factor for SCS UH.
     snap_threshold : int
         Min accumulation for outlet snap.
+    base_flow_m3s : float, optional
+        Base flow (m³/s) to add to direct runoff. If None, no base flow.
+    base_flow_recession_k_min : float, optional
+        Recession time constant (minutes). If provided with base_flow_m3s,
+        use exponential recession Q(t) = Q0 * exp(-t/k). If None, constant base flow.
 
     Returns
     -------
     pd.DataFrame
-        Columns: time_min, flow_m3s, rainfall_mm, excess_mm
+        Columns: time_min, flow_m3s, rainfall_mm, excess_mm [, base_flow_m3s]
     """
     if watershed is None:
         logger.info("Step 1/7: Delineating watershed from DEM (outlet=%.2f, %.2f)...", outlet_x, outlet_y)
@@ -111,7 +150,7 @@ def compute_design_hydrograph(
 
     logger.info("Step 7/7: Convolving excess rainfall with unit hydrograph...")
     flow = _convolve(excess, uh)
-    logger.info("  -> Peak flow: %.2f m³/s", float(np.max(flow)))
+    logger.info("  -> Peak direct runoff: %.2f m³/s", float(np.max(flow)))
 
     n_rain = len(hyetograph)
     n_flow = len(flow)
@@ -122,6 +161,22 @@ def compute_design_hydrograph(
     excess_mm = np.pad(excess, (0, n - n_rain), constant_values=0)
     flow_m3s = np.pad(flow, (0, n - n_flow), constant_values=0)
 
+    # Add base flow (constant or recession) to direct runoff
+    if base_flow_m3s is not None and base_flow_m3s > 0:
+        base_flow = _compute_base_flow(
+            n, timestep_min, base_flow_m3s, base_flow_recession_k_min
+        )
+        flow_m3s = flow_m3s + base_flow
+        logger.info("  -> Base flow added: Q0=%.2f m³/s, recession_k=%s", base_flow_m3s, base_flow_recession_k_min)
+        logger.info("  -> Peak total flow: %.2f m³/s", float(np.max(flow_m3s)))
+
+        return pd.DataFrame({
+            "time_min": time_min,
+            "flow_m3s": flow_m3s,
+            "rainfall_mm": rainfall_mm,
+            "excess_mm": excess_mm,
+            "base_flow_m3s": base_flow,
+        })
     return pd.DataFrame({
         "time_min": time_min,
         "flow_m3s": flow_m3s,

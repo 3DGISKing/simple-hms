@@ -1,0 +1,7 @@
+/src/__pycache__/*.pyc
+/outputs/flood_map.tif
+/outputs/hydrograph.png
+/outputs/hydrograph_floodmap.png
+/outputs/hydrograph_synthetic.png
+/outputs/stream_network.geojson
+/outputs/watershed.geojson

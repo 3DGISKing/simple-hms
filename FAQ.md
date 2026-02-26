@@ -18,6 +18,38 @@ It’s not technically impossible, but automatic outlet detection isn’t used b
 
 **Yes.** The hydrograph is the **flow at the outlet**—discharge (Q, m³/s) over time from the watershed draining to that point. The watershed is delineated upstream of the outlet, so the hydrograph represents the combined runoff from all contributing area reaching the outlet. Use it for design at that location (e.g., culvert, bridge, dam spillway, gauge).
 
+### What is baseflow?
+
+**Baseflow** is the portion of streamflow that comes from **delayed sources** rather than direct runoff. It includes groundwater discharge (water seeping from aquifers into the stream), soil moisture drainage (slow flow through soil and subsurface layers), and interflow (shallow subsurface flow that reaches the channel with delay).
+
+It is contrasted with **stormflow** (quickflow)—the fast response to rainfall from surface runoff and near-surface flow. Baseflow varies slowly, dominates flow between storms and during dry periods, and reflects aquifer and soil properties, geology, and land use. It is often modeled as exponential decay during recession (see baseflow recession). Used for baseflow separation, low-flow analysis, groundwater recharge estimation, and water supply planning.
+
+### What is baseflow recession?
+
+**Baseflow recession** is the **decline in streamflow over time** when there is no rainfall or surface runoff. It describes the falling limb of a hydrograph as flow returns toward pre-storm levels. The recession is driven mainly by groundwater discharge and drainage from soil and shallow aquifers into the stream.
+
+**Typical behavior:** Flow decreases exponentially or as a power law, e.g. Q(t) = Q₀·k^t or Q(t) = Q₀·e^(-αt), where Q₀ is initial flow, k or α is the recession constant, and t is time. The recession constant reflects aquifer and soil properties—slower drainage gives a gentler recession.
+
+**Uses:** Low-flow frequency analysis, baseflow separation (splitting storm runoff from groundwater contribution), groundwater recharge estimation, and calibrating recession parameters in rainfall–runoff models.
+
+### How do I add base flow to the hydrograph?
+
+The tool supports **optional base flow** added to direct runoff. Pass `base_flow_m3s` to `compute_design_hydrograph` or `compute_design_flood_map`; use `base_flow_recession_k_min` for exponential recession instead of constant base flow.
+
+**Constant base flow:** Set `base_flow_m3s` only. Example: `base_flow_m3s=0.5` adds 0.5 m³/s throughout.
+
+**Exponential recession:** Set both `base_flow_m3s` and `base_flow_recession_k_min`. Base flow decays as Q(t) = Q₀·exp(−t/k), where t is time in minutes and k is the recession time constant. Example: `base_flow_m3s=0.5`, `base_flow_recession_k_min=360` gives Q₀ = 0.5 m³/s with e-folding time 6 hours.
+
+```python
+# Constant base flow (0.5 m³/s)
+df = compute_design_hydrograph(..., base_flow_m3s=0.5)
+
+# Exponential recession (Q0=0.5 m³/s, k=360 min)
+df = compute_design_hydrograph(..., base_flow_m3s=0.5, base_flow_recession_k_min=360)
+```
+
+The hydrograph plot shows base flow as a dashed brown line and total flow as a solid red line. The GUI has inputs for “Base flow (m³/s, 0=none)” and “Base recession k (min, blank=constant)”.
+
 ### What is SCS Type I?
 
 **SCS Type I** is one of four NRCS 24-hour rainfall temporal distributions (I, IA, II, III). It defines how a given storm depth is distributed over time—i.e., the hyetograph shape.

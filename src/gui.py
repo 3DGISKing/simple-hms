@@ -85,6 +85,8 @@ def run_gui():
     outlet_y_entry = add_row(input_frame, "Outlet Y:", "1476948", width=12)
     depth_entry = add_row(input_frame, "Design depth (mm):", "100", width=10)
     duration_entry = add_row(input_frame, "Duration (hr):", "24", width=10)
+    base_flow_entry = add_row(input_frame, "Base flow (m³/s, 0=none):", "0", width=10)
+    recession_k_entry = add_row(input_frame, "Base recession k (min, blank=constant):", "", width=10)
 
     # Stage: direct or from rating curve (matches API)
     stage_frame = ttk.LabelFrame(input_frame, text="Stage (water level)", padding=4)
@@ -332,6 +334,9 @@ def run_gui():
             outlet_y = float(outlet_y_entry.get())
             design_depth = float(depth_entry.get())
             duration_hr = float(duration_entry.get())
+            base_flow_val = float(base_flow_entry.get() or "0")
+            recession_k_str = recession_k_entry.get().strip()
+            base_flow_recession_k = float(recession_k_str) if recession_k_str else None
             use_rating_curve = stage_mode_var.get() == "rating_curve"
             if use_rating_curve:
                 b = float(rc_b_entry.get())
@@ -366,6 +371,8 @@ def run_gui():
                 timestep_min=15,
                 output_path=None,
                 progress_callback=on_progress,
+                base_flow_m3s=base_flow_val if base_flow_val > 0 else None,
+                base_flow_recession_k_min=base_flow_recession_k if base_flow_val > 0 else None,
             )
             if use_rating_curve:
                 if rc_channel_var.get() == "rectangular":

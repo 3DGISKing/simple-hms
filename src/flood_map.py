@@ -205,6 +205,8 @@ def compute_design_flood_map(
     snap_threshold: int = 500,
     output_path: Optional[Union[str, Path]] = None,
     progress_callback: Optional[Callable[[float, str], None]] = None,
+    base_flow_m3s: Optional[float] = None,
+    base_flow_recession_k_min: Optional[float] = None,
 ) -> Tuple[pd.DataFrame, Optional[np.ndarray], WatershedResult]:
     """
     Compute design hydrograph and flood extent raster.
@@ -221,6 +223,10 @@ def compute_design_flood_map(
         Direct water level (m). Overrides rating curve if provided.
     output_path : str or Path, optional
         Path to save flood extent GeoTIFF.
+    base_flow_m3s : float, optional
+        Base flow (m³/s) to add to direct runoff.
+    base_flow_recession_k_min : float, optional
+        Recession time constant (minutes) for base flow. If None, constant base flow.
 
     Returns
     -------
@@ -249,6 +255,8 @@ def compute_design_flood_map(
         timestep_min=timestep_min,
         snap_threshold=snap_threshold,
         watershed=ws,
+        base_flow_m3s=base_flow_m3s,
+        base_flow_recession_k_min=base_flow_recession_k_min,
     )
 
     peak_q = float(df["flow_m3s"].max())
