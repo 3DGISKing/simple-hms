@@ -12,6 +12,16 @@ Python-based hydrograph calculator that replicates HEC-HMS hypothetical storm me
 - P2: 2-year 24-hour rainfall (mm) for time-of-concentration
 - Optional: `snap_threshold` (default 500) — min flow accumulation for outlet snap
 
+### DEM + CN only
+
+If you only have a DEM and CN map, you still need to supply:
+
+- **Outlet coordinates** — (x, y) in DEM CRS; the point where the watershed drains (e.g., gauge, culvert, dam). No auto-detection; you choose the outlet.
+- **Design storm** — depth (mm), duration (hr), and pattern (e.g. `type2`, `uniform`).
+- **P2** — 2-year 24-hour rainfall (mm) for time-of-concentration. Default 50 mm; obtain from NOAA Atlas 14 or regional data for better accuracy.
+
+For flood maps, you also need a rating curve (Q vs stage) or direct stage input; Manning-based curves are available for simple channel geometries.
+
 ## Installation
 
 ```bash

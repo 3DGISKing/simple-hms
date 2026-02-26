@@ -6,6 +6,39 @@ Frequently asked questions and answers. Updated as questions arise.
 
 ## Questions
 
+### I only have DEM and CN map. What else do I need?
+
+**DEM and CN are the only spatial datasets required.** You must also supply:
+
+- **Outlet coordinates** — (x, y) in the DEM’s CRS. The point where the watershed drains (e.g., gauge, culvert, dam). There is no auto-detection; you specify the outlet.
+- **Design storm** — depth (mm), duration (hr), and temporal pattern (e.g. `type2`, `uniform`).
+- **P2** — 2-year 24-hour rainfall (mm) for time-of-concentration. Default is 50 mm; use NOAA Atlas 14 or regional data for better accuracy.
+
+For **flood maps**, you also need a rating curve (Q vs stage) or direct stage input. Use `rating_curve_rectangular` or `rating_curve_trapezoidal` from `src.rating_curve` for simple channel geometries.
+
+### What is P2 (2-yr 24-hr rainfall)?
+
+**P2** is the **24-hour rainfall depth** for a storm with a **2-year return period**—i.e., a storm that, on average, is exceeded once every 2 years (about 50% annual exceedance probability). It is a precipitation frequency statistic from regional climate data.
+
+**Why it matters:** P2 is used in the **sheet-flow** term of the time-of-concentration (Tc) formula. The TR-55 sheet-flow equation is `t_sheet = 0.007(nL)^0.8 / (P2^0.5 × S^0.4)` (hr). P2 appears in the denominator—wetter climates (higher P2) yield shorter sheet-flow times and faster runoff response.
+
+**Units:** Use **mm** in this tool. NOAA Atlas 14 and many regional datasets provide values in inches; convert with 1 in = 25.4 mm.
+
+**Where to get it:** NOAA Atlas 14 Precipitation Frequency Data Server ([hdsc.nws.noaa.gov/pfds/](https://hdsc.nws.noaa.gov/pfds/)) or regional precipitation frequency atlases. Enter your site location and read the 2-year, 24-hour precipitation depth. Default in the tool is 50 mm if not supplied.
+
+### Can I use any rainfall depth and duration (e.g., 150 mm over 10 min)?
+
+**Yes.** The tool accepts any depth (mm) and duration (hours). Duration is in hours—e.g., 10 min = 10/60 ≈ 0.167 hr.
+
+**Does it make sense?** It depends on your design purpose and region:
+
+- **Intensity:** 150 mm in 10 min ≈ 900 mm/hr. That is very high—typical 24-hr design storms have average intensities of ~2–10 mm/hr. Check local **intensity–duration–frequency (IDF)** curves (e.g., NOAA Atlas 14) to ensure your values are plausible for your return period.
+- **Time of concentration (Tc):** If Tc > storm duration, the watershed is not fully contributing during the storm; the peak may be underestimated because runoff from the farthest areas arrives after the storm ends.
+- **SCS patterns:** Type I/II/III were derived for 24-hour storms. The tool scales them to shorter durations, but the method was not calibrated for very short storms.
+- **Typical practice:** Many designs use 24-hour storms because they often produce the critical peak for moderate watersheds. Short storms (e.g., 10 min) are common for small urban catchments or IDF-based designs.
+
+**Summary:** Use any depth and duration that match your local IDF data and design intent. For most watersheds, 24-hour storms are the usual choice unless you have a specific reason for a short-duration event.
+
 ### How is the outlet specified?
 
 The outlet (pour point) is **specified manually by the user** as coordinates (x, y) in the DEM’s CRS. There is no automatic outlet detection. The user provides the point where the watershed drains; the tool then snaps it to the nearest high-flow cell (where flow accumulation > `snap_threshold`) before delineation. The default `snap_threshold` is 500 cells; increase it for larger watersheds or if the outlet snaps to a tributary.
@@ -226,6 +259,24 @@ A **rating curve** is the relationship between **discharge (Q)** and **stage (wa
 **Requirements:** A rating curve (Q vs stage) or direct stage input. Use `rating_curve_rectangular` or `rating_curve_trapezoidal` from `src.rating_curve` to derive Q-stage from Manning's equation for simple channel geometries. HAND assumes static stage—no routing of the flood wave. Suitable for design flood extent, not dynamic inundation timing.
 
 **For full hydraulic modeling:** Use the output hydrograph as input to HEC-RAS 1D/2D, LISFLOOD-FP, or ANUGA for routing, backwater, and dynamic inundation.
+
+### Can the hydrograph be used as an upstream boundary condition for HEC-RAS or shallow water models?
+
+**Yes.** The hydrograph is a time series of discharge (Q, m³/s) vs time—exactly what HEC-RAS and 2D shallow water models expect for an **inflow boundary condition**.
+
+**HEC-RAS (1D):** Use the hydrograph as an **upstream flow boundary** at the cross-section where the watershed drains. Export the DataFrame columns `time_min` and `flow_m3s` to a file (e.g., two-column text: time, discharge). HEC-RAS typically accepts time in seconds or hours and discharge in m³/s or cfs—convert if needed (e.g., `time_sec = time_min * 60`).
+
+**2D shallow water (HEC-RAS 2D, LISFLOOD-FP, ANUGA, etc.):** Apply the hydrograph as an **inflow boundary** at the cell(s) where flow enters the domain. The discharge time series is specified at the boundary; the model routes it through the domain.
+
+**Spatial alignment:** The hydrograph represents flow at the **watershed outlet** from this tool. Place the boundary in the hydraulic model at the corresponding location—the upstream end of the reach or the inflow edge of the 2D domain where that watershed contributes.
+
+**Export:** The tool returns a pandas DataFrame with `time_min` and `flow_m3s`. Save to CSV or a format your target software accepts:
+
+```python
+df = compute_design_hydrograph(...)
+df[["time_min", "flow_m3s"]].to_csv("inflow_hydrograph.csv", index=False)
+# Or convert time to seconds for HEC-RAS: df["time_sec"] = df["time_min"] * 60
+```
 
 ### What is 2D diffusive wave?
 
