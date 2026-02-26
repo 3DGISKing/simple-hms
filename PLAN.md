@@ -450,7 +450,7 @@ Interpolate for intermediate t/Tp. Time base ≈ 5×Tp.
 | Limitation | Possible Update | Effort |
 |------------|-----------------|--------|
 | ~~**No base flow**~~ | ~~Add optional base flow~~ **Implemented:** `base_flow_m3s`, `base_flow_recession_k_min` | Done |
-| **Single watershed** | Subdivide watershed into subbasins, route with Muskingum or lag, aggregate | Medium–High |
+| ~~**Single watershed**~~ | ~~Subdivide watershed into subbasins, route with Muskingum or lag, aggregate~~ **Implemented:** `subdivide_watershed`, `compute_design_hydrograph_subbasins`, lag and Muskingum routing | Done |
 | ~~**Tc simplified**~~ | ~~Trace longest flow path, split into sheet/shallow/channel, use TR-55 formulas per segment~~ **Implemented:** path-based Tc with sheet/shallow/channel segments | Done |
 | **Other loss methods** | Add Green-Ampt, Initial & Constant, etc. as alternatives to SCS CN | Medium |
 | **Other transforms** | Add Clark or Snyder UH as alternatives to SCS UH | Medium |
@@ -461,7 +461,7 @@ Interpolate for intermediate t/Tp. Time base ≈ 5×Tp.
 1. ~~**Base flow**~~ — **Done:** `base_flow_m3s`, `base_flow_recession_k_min`; constant or exponential recession.
 2. **Alternative loss/transform** — Add optional methods (e.g. Green-Ampt, Clark) behind a method selector.
 3. ~~**Full Tc**~~ — **Done:** Trace longest flow path, segment into sheet/shallow/channel, apply TR-55 formulas.
-4. **Subbasins** — Subdivide watershed, route with Muskingum or lag, aggregate hydrographs.
+4. ~~**Subbasins**~~ — **Done:** Subdivide at stream junctions, lag/Muskingum routing, aggregate hydrographs.
 
 ---
 
@@ -507,6 +507,17 @@ Interpolate for intermediate t/Tp. Time base ≈ 5×Tp.
 
 - **NRCS Part 630, Chapter 16.** Unit hydrograph theory and SCS dimensionless unit hydrograph ordinates.
 - **USACE.** *HEC-HMS Hydrologic Modeling System, Technical Reference Manual (CPD-74B)*. U.S. Army Corps of Engineers, Hydrologic Engineering Center. — Hypothetical storm methodology, temporal patterns, convolution.
+- **Clark, C.O.** 1945. Storage and the unit hydrograph. *Transactions of the American Society of Civil Engineers* 110:1419–1446. — Clark time–area with storage routing; alternative transform method (Tc, R).
+- **Snyder, W.M.** 1938. Synthetic unit hydrographs. *Transactions of the American Geophysical Union* 19(1):447–454. — Snyder synthetic UH; alternative transform with Ct, Cp, L, Lc.
+
+### Channel Routing
+
+- **McCarthy, G.T.** 1938. The unit hydrograph and flood routing. Unpublished manuscript, U.S. Army Corps of Engineers, North Atlantic Division. — Muskingum routing (K, X); prism + wedge storage.
+
+### Alternative Loss Methods (Possible Updates)
+
+- **Green, W.H., and G.A. Ampt.** 1911. Studies on soil physics. Part I — The flow of air and water through soils. *Journal of Agricultural Science* 4(1):1–24. — Green-Ampt infiltration model.
+- **Mein, R.G., and C.L. Larson.** 1973. Modeling infiltration during a steady rain. *Water Resources Research* 9(2):384–394. DOI: 10.1029/WR009i002p00384. — Green-Ampt applied to rainfall infiltration.
 
 ### Watershed Delineation and Flow Routing
 

@@ -1,11 +1,14 @@
 """Plot flow, rainfall, and excess over time."""
 
 from pathlib import Path
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from .watershed import SubbasinResult
 
 
 def plot_hydrograph(
@@ -90,3 +93,56 @@ def plot_hydrograph(
         fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
 
     return fig
+
+
+def plot_subbasins(
+    ax,
+    subbasins: list,
+    transform,
+    extent: tuple,
+    as_boundaries: bool = True,
+    cmap: str = "Set3",
+) -> None:
+    """
+    Draw subbasins on a matplotlib axes.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axes to draw on.
+    subbasins : list of SubbasinResult
+        From subdivide_watershed.
+    transform : Affine
+        Raster transform for subbasin masks.
+    extent : tuple
+        (left, right, bottom, top) for axes extent.
+    as_boundaries : bool
+        If True, draw subbasin boundaries only (contours). If False, draw filled
+        subbasins with colormap.
+    cmap : str
+        Colormap name for filled subbasins (when as_boundaries=False).
+    """
+    if not subbasins:
+        return
+    rows, cols = subbasins[0].mask.shape
+    x = np.linspace(extent[0], extent[1], cols)
+    y = np.linspace(extent[3], extent[2], rows)
+
+    if as_boundaries:
+        for sb in subbasins:
+            mask_float = np.asarray(sb.mask).astype(float)
+            ax.contour(x, y, mask_float, levels=[0.5], colors="darkred", linewidths=1)
+    else:
+        combined = np.zeros((rows, cols), dtype=np.float32)
+        for i, sb in enumerate(subbasins):
+            combined[sb.mask] = i + 1
+        im = ax.imshow(
+            combined,
+            extent=extent,
+            origin="upper",
+            cmap=cmap,
+            vmin=0.5,
+            vmax=len(subbasins) + 0.5,
+            alpha=0.5,
+            aspect="auto",
+        )

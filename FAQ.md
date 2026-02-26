@@ -50,6 +50,48 @@ df = compute_design_hydrograph(..., base_flow_m3s=0.5, base_flow_recession_k_min
 
 The hydrograph plot shows base flow as a dashed brown line and total flow as a solid red line. The GUI has inputs for “Base flow (m³/s, 0=none)” and “Base recession k (min, blank=constant)”.
 
+### What changes when using subbasin mode vs lumped?
+
+**Subbasin mode** subdivides the watershed at stream junctions, computes runoff per subbasin, routes with lag or Muskingum, and aggregates at the outlet. **Lumped mode** treats the whole watershed as one unit.
+
+**Expected differences in results:**
+
+| Aspect | Lumped | Subbasins |
+|--------|--------|-----------|
+| **Peak flow** | Usually higher | Usually lower (routing spreads flow in time) |
+| **Time to peak** | Earlier | Later (routing delays) |
+| **Recession limb** | Sharper | Smoother, longer (channel storage) |
+| **Total volume** | Same | Same (same rainfall and area) |
+
+**When differences are small:** Simple watersheds (one main stem, few tributaries) or when no stream junctions are found (subbasin mode falls back to lumped).
+
+**When differences are larger:** Branched networks, varying CN/Tc per subbasin, or longer reaches (more routing delay and attenuation).
+
+**Usage:** `compute_design_hydrograph_subbasins(..., routing_method='lag'|'muskingum')` or `python example.py --subbasins`.
+
+### What are lag and Muskingum routing? What are the differences and pros/cons?
+
+**Lag routing** is a simple time shift: the inflow hydrograph is delayed by a fixed lag time; shape and volume are unchanged. Formula: Q_out(t) = Q_in(t − lag). One parameter: lag time (minutes).
+
+**Muskingum routing** is a storage-based method that models channel storage as prism + wedge storage. It delays and attenuates the flood wave. Formula: Q₂ = C₀I₂ + C₁I₁ + C₂Q₁ (mass conserved). Two parameters: K (travel time, hr) and X (weighting factor, 0–0.5).
+
+**Differences:**
+
+| Aspect | Lag | Muskingum |
+|--------|-----|-----------|
+| Attenuation | None | Yes (peak reduced, recession lengthened) |
+| Parameters | Lag time only | K and X |
+| Peak | Same as inflow | Lower than inflow |
+| Shape | Same as inflow, shifted | Smoothed and spread out |
+
+**Pros/cons:**
+
+**Lag:** Simple — one parameter, easy to estimate (e.g., reach length / velocity). Fast and stable. Good when attenuation is small (short, steep reaches). **Cons:** No attenuation; cannot represent channel storage.
+
+**Muskingum:** Models attenuation; represents storage and hysteresis; widely used in practice (e.g., HEC-HMS). **Cons:** Two parameters (K, X) to estimate or calibrate; X has limited physical meaning; K and X can vary with flow.
+
+**When to use:** Use **lag** for short reaches, steep slopes, or when data are limited. Use **Muskingum** for longer reaches, mild slopes, or when attenuation matters and you can calibrate K and X.
+
 ### How is time of concentration (Tc) computed?
 
 **Tc** is the time for runoff to travel from the hydrologically farthest point in the watershed to the outlet. The tool uses **path-based TR-55** when flow direction and accumulation are available:

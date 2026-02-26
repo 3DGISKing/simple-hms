@@ -4,7 +4,7 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -35,6 +35,21 @@ class WatershedResult:
     dem_conditioned: np.ndarray
     stream_network: Dict
     grid: Any = None  # pysheds Grid for HAND (optional)
+
+
+@dataclass
+class SubbasinResult:
+    """Result for one subbasin within a subdivided watershed."""
+
+    id: int
+    mask: np.ndarray
+    area_km2: float
+    snapped_outlet: Tuple[float, float]
+    outlet_row: int
+    outlet_col: int
+    downstream_id: int  # -1 = main outlet
+    reach_length_m: float
+    reach_slope: float
 
 
 def delineate_watershed(
@@ -112,6 +127,222 @@ def delineate_watershed(
         stream_network=stream_network,
         grid=grid,
     )
+
+
+# D8 downstream: fdir value -> (dr, dc) to move to downstream cell
+_DOWNSTREAM_DIR = {
+    64: (-1, 0),  # N
+    128: (-1, 1),  # NE
+    1: (0, 1),  # E
+    2: (1, 1),  # SE
+    4: (1, 0),  # S
+    8: (1, -1),  # SW
+    16: (0, -1),  # W
+    32: (-1, -1),  # NW
+}
+
+
+def _find_stream_junctions(
+    fdir: np.ndarray,
+    stream_mask: np.ndarray,
+    watershed_mask: np.ndarray,
+) -> List[Tuple[int, int]]:
+    """
+    Find stream junctions: stream cells with >= 2 upstream stream neighbors.
+
+    Returns list of (row, col) for each junction.
+    """
+    rows, cols = fdir.shape
+    fdir = np.asarray(fdir)
+    stream_mask = np.asarray(stream_mask).astype(bool)
+    watershed_mask = np.asarray(watershed_mask).astype(bool)
+
+    # Count upstream stream neighbors for each cell
+    upstream_count = np.zeros((rows, cols), dtype=np.int32)
+    for r in range(rows):
+        for c in range(cols):
+            if not stream_mask[r, c] or not watershed_mask[r, c]:
+                continue
+            for dr, dc, required_fdir in _UPSTREAM_NEIGHBORS:
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < rows and 0 <= nc < cols and stream_mask[nr, nc]:
+                    if int(fdir[nr, nc]) == required_fdir:
+                        upstream_count[r, c] += 1
+
+    junctions = []
+    for r in range(rows):
+        for c in range(cols):
+            if upstream_count[r, c] >= 2:
+                junctions.append((r, c))
+    return junctions
+
+
+def _trace_downstream_to_next(
+    start_row: int,
+    start_col: int,
+    fdir: np.ndarray,
+    stream_mask: np.ndarray,
+    junction_set: set,
+    outlet_row: int,
+    outlet_col: int,
+    cell_size: float,
+) -> Tuple[Optional[int], Optional[int], float, float]:
+    """
+    Trace downstream from (start_row, start_col) to next junction or outlet.
+    Returns (next_row, next_col, length_m, slope) or (None, None, 0, 0) if no path.
+    """
+    rows, cols = fdir.shape
+    r, c = start_row, start_col
+    length = 0.0
+    SQRT2 = 1.4142135623730951
+    elev_start = None  # will get from caller
+
+    while True:
+        d = int(fdir[r, c])
+        if d not in _DOWNSTREAM_DIR:
+            return (None, None, 0.0, 0.001)
+        dr, dc = _DOWNSTREAM_DIR[d]
+        nr, nc = r + dr, c + dc
+        edge = cell_size * (SQRT2 if dr != 0 and dc != 0 else 1.0)
+        length += edge
+
+        if nr == outlet_row and nc == outlet_col:
+            return (None, None, length, 0.001)
+        if (nr, nc) in junction_set:
+            return (nr, nc, length, 0.001)
+        if not (0 <= nr < rows and 0 <= nc < cols) or not stream_mask[nr, nc]:
+            return (None, None, length, 0.001)
+        r, c = nr, nc
+
+
+def subdivide_watershed(
+    dem_path: str,
+    outlet_x: float,
+    outlet_y: float,
+    snap_threshold: int = 500,
+    min_subbasin_area_km2: float = 0.1,
+    max_subbasins: int = 20,
+) -> Tuple[WatershedResult, List[SubbasinResult]]:
+    """
+    Subdivide watershed into subbasins at stream junctions.
+
+    Returns main watershed and list of subbasins (incremental drainage areas).
+    Subbasins are ordered so downstream_id refers to the subbasin index.
+    Main outlet subbasin has downstream_id=-1.
+
+    Parameters
+    ----------
+    dem_path : str
+        Path to DEM GeoTIFF.
+    outlet_x, outlet_y : float
+        Main outlet coordinates.
+
+    Returns
+    -------
+    (WatershedResult, List[SubbasinResult])
+    """
+    ws = delineate_watershed(dem_path, outlet_x, outlet_y, snap_threshold)
+    grid = ws.grid
+    if grid is None:
+        raise ValueError("WatershedResult must have grid for subbasin delineation")
+
+    from rasterio.transform import rowcol, xy
+
+    fdir = ws.fdir
+    acc = ws.acc
+    dem = ws.dem_conditioned
+    stream_mask = (acc > snap_threshold) & ws.mask
+    cell_size = ws.cell_size
+    transform = ws.transform
+
+    out_row, out_col = rowcol(transform, outlet_x, outlet_y)
+    rows, cols = fdir.shape
+    if not (0 <= out_row < rows and 0 <= out_col < cols):
+        return (ws, [])
+
+    # Find junctions
+    junctions = _find_stream_junctions(fdir, stream_mask, ws.mask)
+    if not junctions:
+        logger.info("No stream junctions found; single watershed.")
+        return (ws, [])
+
+    junction_set = set(junctions)
+
+    # Build topology: for each junction, find downstream junction/outlet
+    # and delineate catchment
+    points = [(out_row, out_col)] + junctions
+    catchments = {}
+    downstream_of = {}
+    reach_length = {}
+    reach_slope = {}
+
+    for i, (pr, pc) in enumerate(points):
+        try:
+            x, y = xy(transform, pr, pc)
+            snapped = grid.snap_to_mask(stream_mask, (x, y))
+            x_s, y_s = snapped
+            catch = grid.catchment(x=x_s, y=y_s, fdir=fdir, xytype="coordinate")
+            catchments[(pr, pc)] = (catch > 0) & ws.mask
+        except (IndexError, ValueError):
+            catchments[(pr, pc)] = np.zeros_like(ws.mask, dtype=bool)
+
+        if i == 0:
+            downstream_of[(pr, pc)] = (None, None)
+            reach_length[(pr, pc)] = 0.0
+            reach_slope[(pr, pc)] = 0.001
+        else:
+            nr, nc, length, slope = _trace_downstream_to_next(
+                pr, pc, fdir, stream_mask, junction_set,
+                out_row, out_col, cell_size,
+            )
+            reach_length[(pr, pc)] = length
+            reach_slope[(pr, pc)] = slope
+            downstream_of[(pr, pc)] = (nr, nc)
+
+    # Compute incremental areas for each point
+    point_to_subbasin: Dict[Tuple[int, int], int] = {}
+    subbasins: List[SubbasinResult] = []
+
+    for i, (pr, pc) in enumerate(points):
+        incr_mask = catchments[(pr, pc)].copy()
+        for j, (jr, jc) in enumerate(points):
+            if i == j:
+                continue
+            nr, nc = downstream_of[(jr, jc)]
+            if (nr, nc) == (pr, pc):
+                incr_mask &= ~catchments[(jr, jc)]
+        area_m2 = np.sum(incr_mask) * cell_size * cell_size
+        area_km2 = area_m2 / 1e6
+        if area_km2 < min_subbasin_area_km2:
+            continue
+        if len(subbasins) >= max_subbasins:
+            break
+
+        x, y = xy(transform, pr, pc)
+        sb = SubbasinResult(
+            id=len(subbasins),
+            mask=incr_mask,
+            area_km2=area_km2,
+            snapped_outlet=(float(x), float(y)),
+            outlet_row=pr,
+            outlet_col=pc,
+            downstream_id=-1,
+            reach_length_m=reach_length[(pr, pc)],
+            reach_slope=reach_slope[(pr, pc)],
+        )
+        point_to_subbasin[(pr, pc)] = len(subbasins)
+        subbasins.append(sb)
+
+    # Set downstream_id: map to subbasin index
+    for sb in subbasins:
+        nr, nc = downstream_of[(sb.outlet_row, sb.outlet_col)]
+        if nr is None:
+            sb.downstream_id = -1
+        else:
+            sb.downstream_id = point_to_subbasin.get((nr, nc), -1)
+
+    logger.info("Subdivided into %d subbasins", len(subbasins))
+    return (ws, subbasins)
 
 
 # D8 flow direction: upstream neighbor (dr, dc) flows into (r,c) if its fdir equals:
@@ -516,4 +747,80 @@ def export_stream_network_geojson(
 
     n_features = len(fc.get("features", []))
     logger.info("Stream network exported to %s (%d segments)", output_path, n_features)
+    return fc
+
+
+def export_subbasins_geojson(
+    subbasins: List[SubbasinResult],
+    transform: Any,
+    output_path: Union[str, Path],
+    dem_path: Optional[str] = None,
+) -> dict:
+    """
+    Export subbasin masks as GeoJSON FeatureCollection.
+
+    Each subbasin is a polygon feature with properties: id, area_km2, downstream_id.
+
+    Parameters
+    ----------
+    subbasins : list of SubbasinResult
+        From subdivide_watershed.
+    transform : Affine
+        Raster transform for subbasin masks.
+    output_path : str or Path
+        Path to write GeoJSON file.
+    dem_path : str, optional
+        Path to DEM for CRS. If None, CRS is omitted.
+
+    Returns
+    -------
+    dict
+        GeoJSON FeatureCollection (also written to output_path).
+    """
+    from rasterio.features import shapes
+
+    crs = None
+    if dem_path is not None:
+        import rasterio
+        with rasterio.open(dem_path) as src:
+            crs = src.crs
+
+    def to_jsonable(obj):
+        if isinstance(obj, (np.integer, np.int64, np.int32)):
+            return int(obj)
+        if isinstance(obj, (np.floating, np.float64, np.float32)):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, dict):
+            return {k: to_jsonable(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [to_jsonable(v) for v in obj]
+        return obj
+
+    features = []
+    for sb in subbasins:
+        mask_uint8 = np.asarray(sb.mask).copy().astype(np.uint8)
+        for geom, value in shapes(mask_uint8, transform=transform, connectivity=8):
+            if value == 1:
+                features.append({
+                    "type": "Feature",
+                    "geometry": to_jsonable(geom),
+                    "properties": {
+                        "id": sb.id,
+                        "area_km2": float(sb.area_km2),
+                        "downstream_id": sb.downstream_id,
+                    },
+                })
+
+    fc = {"type": "FeatureCollection", "features": features}
+    if crs is not None:
+        fc["crs"] = {"type": "name", "properties": {"name": str(crs)}}
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump(to_jsonable(fc), f, indent=2)
+
+    logger.info("Subbasins exported to %s (%d features)", output_path, len(features))
     return fc

@@ -9,12 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Subbasin subdivision and routing** — `subdivide_watershed` finds stream junctions and delineates incremental subbasins; `compute_design_hydrograph_subbasins` computes runoff per subbasin, routes with lag or Muskingum, and aggregates at outlet. Falls back to lumped watershed when no junctions found. `routing.py`: `lag_route`, `muskingum_route`, `estimate_reach_travel_time_hr`. CLI: `python example.py --subbasins`.
+- **Subbasin GeoJSON export** — `export_subbasins_geojson` exports subbasin polygons with id, area_km2, downstream_id. `plot_subbasins` draws subbasin boundaries or filled polygons on matplotlib axes.
+- **Flood map subbasin support** — `compute_design_flood_map` accepts `use_subbasins`, `min_subbasin_area_km2`, `max_subbasins`; returns 4-tuple `(df, flood_raster, watershed, subbasins)`.
+- **GUI subbasin mode** — Checkbox "Use subbasins"; subbasins layer toggle in map layers; subbasin boundaries drawn when available.
 - **Path-based time of concentration (Tc)** — Traces longest flow path from watershed boundary to outlet; segments into sheet (≤100 m), shallow concentrated (next 300 m), and channel flow; applies TR-55 formulas per segment. Falls back to area-based estimate when fdir/acc/transform/outlet unavailable. Optional `shallow_paved` and `channel_r_m` parameters.
 
 ### Changed
 
 - **Tc computation** — `compute_time_of_concentration` now accepts optional `fdir`, `acc`, `transform`, `snapped_outlet`, `stream_threshold` for path-based TR-55 Tc; hydrograph pipeline passes these when available.
-- Documentation updates: README, PLAN, FAQ — Tc implementation, limitations, comparison table
+- **`compute_design_flood_map` return** — Now returns `(df, flood_raster, watershed, subbasins)`; subbasins is `None` when `use_subbasins=False`.
+- Documentation updates: README, PLAN, FAQ — subbasins, routing, flood map API, Tc implementation, limitations, comparison table
 
 ## [1.1.0] - 2026-02-26
 

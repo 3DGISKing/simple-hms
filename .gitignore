@@ -5,3 +5,4 @@
 /outputs/hydrograph_synthetic.png
 /outputs/stream_network.geojson
 /outputs/watershed.geojson
+/outputs/subbasins.geojson

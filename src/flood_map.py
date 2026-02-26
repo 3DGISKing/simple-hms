@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 import rasterio
 
-from .hydrograph import compute_design_hydrograph
-from .watershed import delineate_watershed, WatershedResult
+from .hydrograph import compute_design_hydrograph, compute_design_hydrograph_subbasins
+from .watershed import delineate_watershed, subdivide_watershed, WatershedResult
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +207,10 @@ def compute_design_flood_map(
     progress_callback: Optional[Callable[[float, str], None]] = None,
     base_flow_m3s: Optional[float] = None,
     base_flow_recession_k_min: Optional[float] = None,
-) -> Tuple[pd.DataFrame, Optional[np.ndarray], WatershedResult]:
+    use_subbasins: bool = False,
+    min_subbasin_area_km2: float = 0.1,
+    max_subbasins: int = 20,
+) -> Tuple[pd.DataFrame, Optional[np.ndarray], WatershedResult, Optional[list]]:
     """
     Compute design hydrograph and flood extent raster.
 
@@ -228,36 +231,67 @@ def compute_design_flood_map(
     base_flow_recession_k_min : float, optional
         Recession time constant (minutes) for base flow. If None, constant base flow.
 
+    use_subbasins : bool
+        If True, use subbasin subdivision and routing; returns subbasins for drawing.
+    min_subbasin_area_km2, max_subbasins : float, int
+        Subbasin parameters when use_subbasins=True.
+
     Returns
     -------
-    (pd.DataFrame, np.ndarray or None, WatershedResult)
-        Hydrograph DataFrame, flood depth raster (m), and watershed result.
-        Flood raster is None if stage cannot be computed.
+    (pd.DataFrame, np.ndarray or None, WatershedResult, list or None)
+        Hydrograph DataFrame, flood depth raster (m), watershed result, and subbasins
+        (None when use_subbasins=False). Flood raster is None if stage cannot be computed.
     """
     def _progress(pct: float, msg: str) -> None:
         if progress_callback:
             progress_callback(pct, msg)
 
-    logger.info("Delineating watershed for flood map...")
-    _progress(5, "Delineating watershed...")
-    ws = delineate_watershed(dem_path, outlet_x, outlet_y, snap_threshold)
-    _progress(25, "Computing hydrograph...")
-
-    df = compute_design_hydrograph(
-        dem_path=dem_path,
-        cn_path=cn_path,
-        outlet_x=outlet_x,
-        outlet_y=outlet_y,
-        design_depth_mm=design_depth_mm,
-        duration_hr=duration_hr,
-        pattern=pattern,
-        p2_24hr_mm=p2_24hr_mm,
-        timestep_min=timestep_min,
-        snap_threshold=snap_threshold,
-        watershed=ws,
-        base_flow_m3s=base_flow_m3s,
-        base_flow_recession_k_min=base_flow_recession_k_min,
-    )
+    subbasins = None
+    if use_subbasins:
+        logger.info("Subbasin mode: delineating and subdividing watershed...")
+        _progress(5, "Delineating watershed...")
+        ws, subbasins = subdivide_watershed(
+            dem_path, outlet_x, outlet_y, snap_threshold,
+            min_subbasin_area_km2=min_subbasin_area_km2,
+            max_subbasins=max_subbasins,
+        )
+        _progress(25, "Computing hydrograph (subbasins)...")
+        df = compute_design_hydrograph_subbasins(
+            dem_path=dem_path,
+            cn_path=cn_path,
+            outlet_x=outlet_x,
+            outlet_y=outlet_y,
+            design_depth_mm=design_depth_mm,
+            duration_hr=duration_hr,
+            pattern=pattern,
+            p2_24hr_mm=p2_24hr_mm,
+            timestep_min=timestep_min,
+            snap_threshold=snap_threshold,
+            watershed=ws,
+            subbasins=subbasins,
+            base_flow_m3s=base_flow_m3s,
+            base_flow_recession_k_min=base_flow_recession_k_min,
+        )
+    else:
+        logger.info("Delineating watershed for flood map...")
+        _progress(5, "Delineating watershed...")
+        ws = delineate_watershed(dem_path, outlet_x, outlet_y, snap_threshold)
+        _progress(25, "Computing hydrograph...")
+        df = compute_design_hydrograph(
+            dem_path=dem_path,
+            cn_path=cn_path,
+            outlet_x=outlet_x,
+            outlet_y=outlet_y,
+            design_depth_mm=design_depth_mm,
+            duration_hr=duration_hr,
+            pattern=pattern,
+            p2_24hr_mm=p2_24hr_mm,
+            timestep_min=timestep_min,
+            snap_threshold=snap_threshold,
+            watershed=ws,
+            base_flow_m3s=base_flow_m3s,
+            base_flow_recession_k_min=base_flow_recession_k_min,
+        )
 
     peak_q = float(df["flow_m3s"].max())
     logger.info("Peak flow: %.2f m³/s", peak_q)
@@ -267,7 +301,7 @@ def compute_design_flood_map(
         stage = discharge_to_stage(peak_q, rating_curve=rating_curve, stage_m=stage_m)
     except ValueError as e:
         logger.warning("Cannot compute stage: %s. Skipping flood extent.", e)
-        return df, None, ws
+        return df, None, ws, subbasins
 
     logger.info("Computing HAND...")
     stream_mask = _to_array(ws.acc) > snap_threshold
@@ -294,4 +328,4 @@ def compute_design_flood_map(
         logger.info("Flood extent saved to %s", output_path)
 
     _progress(100, "Done")
-    return df, flood_raster, ws
+    return df, flood_raster, ws, subbasins

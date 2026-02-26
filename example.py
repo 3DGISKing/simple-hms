@@ -89,7 +89,7 @@ def run_floodmap_example(dem_path: str, cn_path: str, outlet_x: float, outlet_y:
     rating_curve = rating_curve_trapezoidal(b=10.0, z=2.0, n=0.03, s=0.001, h_max=5.0)
 
     out_path = Path("outputs/flood_map.tif")
-    df, flood_raster, _ = compute_design_flood_map(
+    df, flood_raster, _, _ = compute_design_flood_map(
         dem_path=dem_path,
         cn_path=cn_path,
         outlet_x=outlet_x,
@@ -120,24 +120,38 @@ def run_floodmap_example(dem_path: str, cn_path: str, outlet_x: float, outlet_y:
     return df, flood_raster
 
 
-def run_full_example(dem_path: str, cn_path: str, outlet_x: float, outlet_y: float):
+def run_full_example(dem_path: str, cn_path: str, outlet_x: float, outlet_y: float, use_subbasins: bool = False):
     """Run full pipeline with DEM and CN map."""
-    from src.hydrograph import compute_design_hydrograph
+    from src.hydrograph import compute_design_hydrograph, compute_design_hydrograph_subbasins
     from src.plot import plot_hydrograph
 
-    df = compute_design_hydrograph(
-        dem_path=dem_path,
-        cn_path=cn_path,
-        outlet_x=outlet_x,
-        outlet_y=outlet_y,
-        design_depth_mm=100,
-        duration_hr=24,
-        pattern="type2",
-        p2_24hr_mm=50,
-        timestep_min=15,
-        base_flow_m3s=0.3,
-        base_flow_recession_k_min=None,  # constant base flow
-    )
+    if use_subbasins:
+        df = compute_design_hydrograph_subbasins(
+            dem_path=dem_path,
+            cn_path=cn_path,
+            outlet_x=outlet_x,
+            outlet_y=outlet_y,
+            design_depth_mm=100,
+            duration_hr=24,
+            pattern="type2",
+            p2_24hr_mm=50,
+            timestep_min=15,
+            routing_method="lag",
+        )
+    else:
+        df = compute_design_hydrograph(
+            dem_path=dem_path,
+            cn_path=cn_path,
+            outlet_x=outlet_x,
+            outlet_y=outlet_y,
+            design_depth_mm=100,
+            duration_hr=24,
+            pattern="type2",
+            p2_24hr_mm=50,
+            timestep_min=15,
+            base_flow_m3s=0.3,
+            base_flow_recession_k_min=None,  # constant base flow
+        )
     peak_idx = df["flow_m3s"].idxmax()
     print("First 10 rows (early storm; flow=0 until excess rainfall exceeds Ia):")
     print(df.head(10))
@@ -170,17 +184,27 @@ if __name__ == "__main__":
         print("\nFull example with DEM...")
         for name in ("src.hydrograph", "src.watershed"):
             logging.getLogger(name).setLevel(logging.INFO)
-        df = run_full_example(str(dem), str(cn), 1074538, 1476948)
+        use_subbasins = "--subbasins" in sys.argv
+        if use_subbasins:
+            print("(Subbasin mode: subdividing at stream junctions, lag routing)")
+        df = run_full_example(str(dem), str(cn), 1074538, 1476948, use_subbasins=use_subbasins)
 
         # Export watershed and stream network as GeoJSON
         from src.watershed import (
             delineate_watershed,
             export_watershed_geojson,
             export_stream_network_geojson,
+            export_subbasins_geojson,
+            subdivide_watershed,
         )
         ws = delineate_watershed(str(dem), 1074538, 1476948)
         export_watershed_geojson(ws, "outputs/watershed.geojson", dem_path=str(dem))
         export_stream_network_geojson(ws, "outputs/stream_network.geojson", dem_path=str(dem))
+        if use_subbasins:
+            _, subbasins = subdivide_watershed(str(dem), 1074538, 1476948)
+            if subbasins:
+                export_subbasins_geojson(subbasins, ws.transform, "outputs/subbasins.geojson", dem_path=str(dem))
+                print("  Subbasins exported to outputs/subbasins.geojson")
 
         print("\nFlood map example...")
         for name in ("src.hydrograph", "src.watershed", "src.flood_map"):

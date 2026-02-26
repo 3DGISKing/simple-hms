@@ -1,22 +1,31 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "Python: example.py",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/example.py",
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": "Python: GUI",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/example.py",
-            "args": ["gui"],
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        }
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: example.py",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/example.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Python: GUI",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/example.py",
+      "args": ["gui"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Python: example.py --subbasins",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/example.py",
+      "args": ["--subbasins"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
 }

@@ -16,6 +16,7 @@ from matplotlib.figure import Figure
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .flood_map import compute_design_flood_map
+from .plot import plot_subbasins
 from .rating_curve import rating_curve_rectangular, rating_curve_trapezoidal
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ def run_gui():
     df_result = [None]
     flood_raster_result = [None]
     watershed_result = [None]
+    subbasins_result = [None]
 
     # Input frame
     input_frame = ttk.LabelFrame(root, text="Inputs", padding=8)
@@ -155,6 +157,8 @@ def run_gui():
     )
     scs_combo.pack(side=tk.LEFT, padx=4)
 
+    use_subbasins_var = tk.BooleanVar(value=False)
+
     def browse_dem():
         p = filedialog.askopenfilename(filetypes=[("GeoTIFF", "*.tif *.tiff")])
         if p:
@@ -172,16 +176,27 @@ def run_gui():
     ttk.Button(btn_row, text="Browse DEM", command=browse_dem).pack(side=tk.LEFT, padx=2)
     ttk.Button(btn_row, text="Browse CN", command=browse_cn).pack(side=tk.LEFT, padx=2)
 
+    # Subbasin mode (prominent row)
+    subbasin_row = ttk.Frame(input_frame)
+    subbasin_row.pack(fill=tk.X, pady=4)
+    ttk.Checkbutton(
+        subbasin_row,
+        text="Use subbasins (subdivide at stream junctions, lag routing)",
+        variable=use_subbasins_var,
+    ).pack(side=tk.LEFT)
+
     # Visibility checkboxes for map layers
     vis_frame = ttk.LabelFrame(root, text="Map layers", padding=6)
     vis_frame.pack(fill=tk.X, padx=8, pady=4)
     show_dem = tk.BooleanVar(value=True)
     show_watershed = tk.BooleanVar(value=True)
     show_stream = tk.BooleanVar(value=True)
+    show_subbasins = tk.BooleanVar(value=True)
     show_inundation = tk.BooleanVar(value=True)
     ttk.Checkbutton(vis_frame, text="DEM", variable=show_dem, command=lambda: root.after_idle(update_plots)).pack(side=tk.LEFT, padx=8)
     ttk.Checkbutton(vis_frame, text="Watershed", variable=show_watershed, command=lambda: root.after_idle(update_plots)).pack(side=tk.LEFT, padx=8)
     ttk.Checkbutton(vis_frame, text="Stream network", variable=show_stream, command=lambda: root.after_idle(update_plots)).pack(side=tk.LEFT, padx=8)
+    ttk.Checkbutton(vis_frame, text="Subbasins", variable=show_subbasins, command=lambda: root.after_idle(update_plots)).pack(side=tk.LEFT, padx=8)
     ttk.Checkbutton(vis_frame, text="Inundation", variable=show_inundation, command=lambda: root.after_idle(update_plots)).pack(side=tk.LEFT, padx=8)
 
     # Progress bar (determinate: 0–100%)
@@ -262,7 +277,12 @@ def run_gui():
         if show_stream.get():
             _plot_stream_network(ax_map, ws.stream_network, color="#1565C0", linewidth=1.2)
 
-        # 4. Inundation overlay
+        # 4. Subbasins (when available)
+        subbasins = subbasins_result[0]
+        if show_subbasins.get() and subbasins:
+            plot_subbasins(ax_map, subbasins, ws.transform, extent, as_boundaries=True)
+
+        # 5. Inundation overlay
         if show_inundation.get() and flood_raster is not None:
             inundation = np.where(
                 np.isfinite(flood_raster) & (flood_raster > 0),
@@ -285,7 +305,7 @@ def run_gui():
         else:
             cax.set_visible(False)
 
-        ax_map.set_title("DEM, watershed, stream network & inundation")
+        ax_map.set_title("DEM, watershed, stream network, subbasins & inundation")
         ax_map.set_xlabel("X")
         ax_map.set_ylabel("Y")
 
@@ -314,7 +334,11 @@ def run_gui():
 
         canvas.draw()
         peak = float(df["flow_m3s"].max())
-        status_var.set(f"Done. Peak flow: {peak:.2f} m³/s")
+        subbasins = subbasins_result[0]
+        if subbasins is not None and len(subbasins) == 0 and use_subbasins_var.get():
+            status_var.set(f"Done. Peak flow: {peak:.2f} m³/s (no stream junctions found)")
+        else:
+            status_var.set(f"Done. Peak flow: {peak:.2f} m³/s")
 
     def run_pipeline():
         dem_path = dem_entry.get().strip()
@@ -373,6 +397,7 @@ def run_gui():
                 progress_callback=on_progress,
                 base_flow_m3s=base_flow_val if base_flow_val > 0 else None,
                 base_flow_recession_k_min=base_flow_recession_k if base_flow_val > 0 else None,
+                use_subbasins=use_subbasins_var.get(),
             )
             if use_rating_curve:
                 if rc_channel_var.get() == "rectangular":
@@ -388,10 +413,11 @@ def run_gui():
             progress_var.set(0)
             status_var.set("Starting...")
             try:
-                df, flood_raster, ws = do_run()
+                df, flood_raster, ws, subbasins = do_run()
                 df_result[0] = df
                 flood_raster_result[0] = flood_raster
                 watershed_result[0] = ws
+                subbasins_result[0] = subbasins
                 root.after(0, lambda: _finish_run(None))
             except Exception as e:
                 root.after(0, lambda: _finish_run(e))
