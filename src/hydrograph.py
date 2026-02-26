@@ -137,6 +137,11 @@ def compute_design_hydrograph(
         ws.stream_network,
         p2_24hr_mm,
         ws.cell_size,
+        fdir=ws.fdir,
+        acc=ws.acc,
+        transform=ws.transform,
+        snapped_outlet=ws.snapped_outlet,
+        stream_threshold=snap_threshold,
     )
     logger.info("  -> Tc: %.2f hr, lag: %.1f min", tc_hr, lag_min)
 

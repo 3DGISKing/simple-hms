@@ -50,6 +50,25 @@ df = compute_design_hydrograph(..., base_flow_m3s=0.5, base_flow_recession_k_min
 
 The hydrograph plot shows base flow as a dashed brown line and total flow as a solid red line. The GUI has inputs for “Base flow (m³/s, 0=none)” and “Base recession k (min, blank=constant)”.
 
+### How is time of concentration (Tc) computed?
+
+**Tc** is the time for runoff to travel from the hydrologically farthest point in the watershed to the outlet. The tool uses **path-based TR-55** when flow direction and accumulation are available:
+
+1. **Trace longest flow path** — From the outlet, trace upstream via D8 flow direction to find the cell farthest from the outlet along the flow path.
+2. **Segment the path** — From head to outlet: sheet flow (first ≤100 m), shallow concentrated flow (next 300 m), channel flow (remainder).
+3. **Apply TR-55 formulas** — Sheet: `t = 0.007(nL)^0.8/(P2^0.5 S^0.4)` (hr); shallow: `t = L/V` with `V = 16.13√S` (unpaved) or `20.33√S` (paved) ft/s; channel: Manning `V = (1.49/n)R^(2/3)S^(1/2)`, then `t = L/V`.
+4. **Lag** — `tp = 0.6 × Tc` (minutes).
+
+If flow direction, accumulation, transform, or outlet are missing, the tool falls back to an area-based estimate. Optional parameters: `shallow_paved` (use paved velocity for shallow flow), `channel_r_m` (hydraulic radius for channel Manning estimate).
+
+### What is a TR-55 estimate?
+
+**TR-55** (Technical Release 55) is the NRCS document *Urban Hydrology for Small Watersheds*. A **TR-55 estimate** is any value or procedure taken from that manual.
+
+**What TR-55 covers:** Curve numbers (CN) for runoff; time of concentration (Tc) from flow-path segments (sheet, shallow concentrated, channel flow); SCS unit hydrograph and lag; SCS rainfall temporal distributions (Type I, IA, II, III) in Appendix B.
+
+**In this tool:** TR-55 is used for rainfall temporal distributions, SCS runoff (excess rainfall from CN), Tc and lag from flow-path segments (sheet, shallow concentrated, channel flow), and unit hydrograph peak rate factor and dimensionless ordinates. Tc is computed by tracing the longest flow path from watershed boundary to outlet, segmenting into sheet (≤100 m), shallow (next 300 m), and channel flow, and applying TR-55 formulas per segment. A TR-55 estimate is thus a value or method derived from that NRCS manual (e.g., Tc, lag, CN-based runoff, or UH parameters).
+
 ### What is SCS Type I?
 
 **SCS Type I** is one of four NRCS 24-hour rainfall temporal distributions (I, IA, II, III). It defines how a given storm depth is distributed over time—i.e., the hyetograph shape.

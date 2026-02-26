@@ -114,19 +114,98 @@ def delineate_watershed(
     )
 
 
+# D8 flow direction: upstream neighbor (dr, dc) flows into (r,c) if its fdir equals:
+# (r-1,c): S=4, (r-1,c+1): SW=8, (r,c+1): W=16, (r+1,c+1): NW=32,
+# (r+1,c): N=64, (r+1,c-1): NE=128, (r,c-1): E=1, (r-1,c-1): SE=2
+_UPSTREAM_NEIGHBORS = [
+    (-1, 0, 4), (-1, 1, 8), (0, 1, 16), (1, 1, 32),
+    (1, 0, 64), (1, -1, 128), (0, -1, 1), (-1, -1, 2),
+]
+
+
+def _trace_longest_flow_path(
+    outlet_row: int,
+    outlet_col: int,
+    fdir: np.ndarray,
+    watershed_mask: np.ndarray,
+    cell_size: float,
+) -> list:
+    """
+    Trace longest flow path from watershed boundary to outlet (head to outlet order).
+
+    Uses BFS from outlet to compute flow distance; returns path from head to outlet.
+    """
+    rows, cols = fdir.shape
+    fdir = np.asarray(fdir)
+    SQRT2 = 1.4142135623730951
+
+    # BFS: dist[cell] = longest distance from outlet along flow path
+    dist = np.full((rows, cols), -np.inf)
+    dist[outlet_row, outlet_col] = 0.0
+    queue = [(outlet_row, outlet_col)]
+    head_row, head_col = outlet_row, outlet_col
+    max_dist = 0.0
+
+    for i in range(rows * cols):
+        if i >= len(queue):
+            break
+        r, c = queue[i]
+        if not watershed_mask[r, c]:
+            continue
+        d_here = dist[r, c]
+        for dr, dc, required_fdir in _UPSTREAM_NEIGHBORS:
+            nr, nc = r + dr, c + dc
+            if 0 <= nr < rows and 0 <= nc < cols and watershed_mask[nr, nc]:
+                if int(fdir[nr, nc]) == required_fdir:
+                    edge = cell_size * (SQRT2 if dr != 0 and dc != 0 else 1.0)
+                    new_dist = d_here + edge
+                    if new_dist > dist[nr, nc]:
+                        dist[nr, nc] = new_dist
+                        queue.append((nr, nc))
+                        if new_dist > max_dist:
+                            max_dist = new_dist
+                            head_row, head_col = nr, nc
+
+    # Trace path from head to outlet (follow flow direction downstream)
+    path = [(head_row, head_col)]
+    r, c = head_row, head_col
+    # D8 downstream: 64=N->(-1,0), 128=NE->(-1,1), 1=E->(0,1), 2=SE->(1,1), 4=S->(1,0), 8=SW->(1,-1), 16=W->(0,-1), 32=NW->(-1,-1)
+    dirmap = {64: (-1, 0), 128: (-1, 1), 1: (0, 1), 2: (1, 1), 4: (1, 0), 8: (1, -1), 16: (0, -1), 32: (-1, -1)}
+    while (r, c) != (outlet_row, outlet_col):
+        d = int(fdir[r, c])
+        if d not in dirmap:
+            break
+        dr, dc = dirmap[d]
+        r, c = r + dr, c + dc
+        if 0 <= r < rows and 0 <= c < cols:
+            path.append((r, c))
+        else:
+            break
+    return path
+
+
 def compute_time_of_concentration(
     watershed_mask: np.ndarray,
     dem: np.ndarray,
     stream_network: Dict,
     p2_24hr_mm: float,
     cell_size: float,
+    fdir: Optional[np.ndarray] = None,
+    acc: Optional[np.ndarray] = None,
+    transform: Any = None,
+    snapped_outlet: Optional[Tuple[float, float]] = None,
+    stream_threshold: int = 500,
     n_manning: float = 0.05,
+    shallow_paved: bool = False,
+    channel_r_m: float = 0.3,
 ) -> Tuple[float, float]:
     """
     Estimate time of concentration (hr) and lag (min) using SCS/TR-55.
 
-    Simplified: uses watershed area and mean slope. For full implementation,
-    trace longest flow path and segment into sheet/shallow/channel.
+    Traces longest flow path from watershed boundary to outlet, segments into
+    sheet (≤100 m), shallow concentrated (next 300 m), and channel flow;
+    applies TR-55 formulas per segment. Falls back to area-based estimate if
+    path tracing is not possible (missing fdir/acc/transform/outlet).
 
     Parameters
     ----------
@@ -135,13 +214,27 @@ def compute_time_of_concentration(
     dem : np.ndarray
         Elevation grid (conditioned).
     stream_network : dict
-        Stream network GeoJSON (unused in simplified version).
+        Stream network GeoJSON (used for stream mask when acc provided).
     p2_24hr_mm : float
         2-year 24-hour rainfall (mm).
     cell_size : float
         Cell size (m).
+    fdir : np.ndarray, optional
+        D8 flow direction. Required for path-based Tc.
+    acc : np.ndarray, optional
+        Flow accumulation. Required for stream mask.
+    transform : Affine, optional
+        Raster transform for outlet coord conversion.
+    snapped_outlet : tuple, optional
+        (x, y) snapped outlet coordinates.
+    stream_threshold : int
+        Min accumulation for stream cells (channel segment).
     n_manning : float
         Manning n for channel flow.
+    shallow_paved : bool
+        Use paved velocity for shallow flow (20.33√S vs 16.13√S).
+    channel_r_m : float
+        Hydraulic radius (m) for channel flow Manning estimate.
 
     Returns
     -------
@@ -150,35 +243,148 @@ def compute_time_of_concentration(
     from .utils import m_to_ft, mm_to_in
 
     p2_in = mm_to_in(p2_24hr_mm)
-    area_cells = np.sum(watershed_mask)
-    area_m2 = area_cells * cell_size * cell_size
-    area_ft2 = area_m2 * (3.28084 ** 2)
+    dem = np.asarray(dem)
+    watershed_mask = np.asarray(watershed_mask).astype(bool)
 
+    # Path-based Tc when all required inputs available
+    if fdir is not None and acc is not None and transform is not None and snapped_outlet is not None:
+        try:
+            from rasterio.transform import rowcol
+            out_row, out_col = rowcol(transform, snapped_outlet[0], snapped_outlet[1])
+            rows, cols = fdir.shape
+            if 0 <= out_row < rows and 0 <= out_col < cols and watershed_mask[out_row, out_col]:
+                path = _trace_longest_flow_path(
+                    out_row, out_col, fdir, watershed_mask, cell_size
+                )
+                if len(path) >= 2:
+                    Tc_hr = _tc_from_path(
+                        path, dem, cell_size, p2_in,
+                        n_manning, shallow_paved, channel_r_m
+                    )
+                    if Tc_hr is not None:
+                        lag_min = 0.6 * Tc_hr * 60
+                        logger.debug(
+                            "Tc from flow path: %.3f hr, lag %.1f min",
+                            Tc_hr, lag_min
+                        )
+                        return (float(Tc_hr), float(lag_min))
+        except Exception as e:
+            logger.debug("Path-based Tc failed, using fallback: %s", e)
+
+    # Fallback: area-based estimate
+    area_m2 = np.sum(watershed_mask) * cell_size * cell_size
     elev = np.where(watershed_mask, dem, np.nan)
-    valid = np.isfinite(elev)
-    if not np.any(valid):
+    if not np.any(np.isfinite(elev)):
         Tc_hr = 0.5
     else:
         elev_min, elev_max = np.nanmin(elev), np.nanmax(elev)
-        L_ft = m_to_ft(np.sqrt(area_m2))
-        L_ft = min(L_ft, 3000)
-        S = max((elev_max - elev_min) / (L_ft * 3.28084), 0.001)
-        S_ft = S
+        L_ft = m_to_ft(min(np.sqrt(area_m2), 914.4))
+        S = max((elev_max - elev_min) / (L_ft * 0.3048), 0.001)
 
         t_sheet_hr = 0.007 * (n_manning * min(L_ft, 300)) ** 0.8 / (
-            (p2_in ** 0.5) * (S_ft ** 0.4)
+            (p2_in ** 0.5) * (S ** 0.4)
         )
         L_shallow = max(L_ft - 300, 0)
         if L_shallow > 0:
-            V_shallow = 16.13 * (S_ft ** 0.5)
-            t_shallow_hr = (L_shallow / 3.28084) / (V_shallow * 0.3048) / 3600
+            V = 20.33 * (S ** 0.5) if shallow_paved else 16.13 * (S ** 0.5)
+            t_shallow_hr = (L_shallow / 3.28084) / (V * 0.3048) / 3600
         else:
-            t_shallow_hr = 0
-        Tc_hr = t_sheet_hr + t_shallow_hr
-        Tc_hr = max(Tc_hr, 0.1)
+            t_shallow_hr = 0.0
+        Tc_hr = max(t_sheet_hr + t_shallow_hr, 0.1)
 
     lag_min = 0.6 * Tc_hr * 60
     return (float(Tc_hr), float(lag_min))
+
+
+def _tc_from_path(
+    path: list,
+    dem: np.ndarray,
+    cell_size: float,
+    p2_in: float,
+    n_manning: float,
+    shallow_paved: bool,
+    channel_r_m: float,
+) -> Optional[float]:
+    """
+    Compute Tc from flow path segments using TR-55 formulas.
+
+    path: list of (row, col) from head to outlet.
+    """
+    from .utils import m_to_ft
+
+    SQRT2 = 1.4142135623730951
+    L_sheet_max = 100.0
+    L_shallow_max = 300.0
+
+    # Cumulative length from head
+    lengths = [0.0]
+    for i in range(1, len(path)):
+        r0, c0 = path[i - 1]
+        r1, c1 = path[i]
+        d = cell_size * (SQRT2 if (r1 - r0) != 0 and (c1 - c0) != 0 else 1.0)
+        lengths.append(lengths[-1] + d)
+
+    total_len = lengths[-1]
+    if total_len <= 0:
+        return None
+
+    elevs = [dem[r, c] for r, c in path]
+    if not all(np.isfinite(e) for e in elevs):
+        return None
+
+    def slope_for_segment(i_start: int, i_end: int) -> float:
+        if i_end <= i_start:
+            return 0.001
+        L = lengths[i_end] - lengths[i_start]
+        if L <= 0:
+            return 0.001
+        drop = elevs[i_start] - elevs[i_end]
+        return max(drop / L, 0.001)
+
+    t_sheet_hr = 0.0
+    t_shallow_hr = 0.0
+    t_channel_hr = 0.0
+
+    # Sheet: first L_sheet_max m from head
+    i = 0
+    while i < len(lengths) - 1 and lengths[i + 1] <= L_sheet_max:
+        i += 1
+    i_sheet_end = i
+    if i_sheet_end > 0:
+        L_sheet = lengths[i_sheet_end] - lengths[0]
+        L_sheet = min(L_sheet, L_sheet_max)
+        S_sheet = slope_for_segment(0, i_sheet_end)
+        L_ft = m_to_ft(L_sheet)
+        t_sheet_hr = 0.007 * (n_manning * L_ft) ** 0.8 / (
+            (p2_in ** 0.5) * (S_sheet ** 0.4)
+        )
+
+    # Shallow: next L_shallow_max m
+    i_start = i_sheet_end
+    i = i_start
+    L_shallow_done = 0.0
+    while i < len(lengths) - 1 and L_shallow_done < L_shallow_max:
+        seg = min(lengths[i + 1] - lengths[i], L_shallow_max - L_shallow_done)
+        L_shallow_done += lengths[i + 1] - lengths[i]
+        i += 1
+    i_shallow_end = i
+    if i_shallow_end > i_start:
+        L_shallow = min(lengths[i_shallow_end] - lengths[i_start], L_shallow_max)
+        S_shallow = slope_for_segment(i_start, i_shallow_end)
+        V_fts = 20.33 * (S_shallow ** 0.5) if shallow_paved else 16.13 * (S_shallow ** 0.5)
+        t_shallow_hr = (m_to_ft(L_shallow) / 3.28084) / (V_fts * 0.3048) / 3600
+
+    # Channel: remainder to outlet
+    i_channel_start = i_shallow_end
+    if i_channel_start < len(path) - 1:
+        L_channel = lengths[-1] - lengths[i_channel_start]
+        S_channel = slope_for_segment(i_channel_start, len(path) - 1)
+        R_ft = channel_r_m / 0.3048
+        V_fts = (1.49 / n_manning) * (R_ft ** (2 / 3)) * (S_channel ** 0.5)
+        t_channel_hr = (m_to_ft(L_channel) / 3.28084) / (V_fts * 0.3048) / 3600
+
+    Tc_hr = t_sheet_hr + t_shallow_hr + t_channel_hr
+    return max(Tc_hr, 0.1)
 
 
 def export_watershed_geojson(

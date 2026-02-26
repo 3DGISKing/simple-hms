@@ -257,7 +257,10 @@ def extract_stream_network(fdir: np.ndarray, acc: np.ndarray, threshold: int = 1
 
 def compute_time_of_concentration(
     watershed_mask: np.ndarray, dem: np.ndarray, stream_network: dict,
-    p2_24hr_mm: float, n_manning: float = 0.05
+    p2_24hr_mm: float, cell_size: float,
+    fdir=None, acc=None, transform=None, snapped_outlet=None,
+    stream_threshold: int = 500, n_manning: float = 0.05,
+    shallow_paved: bool = False, channel_r_m: float = 0.3
 ) -> tuple[float, float]  # (Tc_hr, lag_min)
 ```
 
@@ -448,7 +451,7 @@ Interpolate for intermediate t/Tp. Time base ≈ 5×Tp.
 |------------|-----------------|--------|
 | ~~**No base flow**~~ | ~~Add optional base flow~~ **Implemented:** `base_flow_m3s`, `base_flow_recession_k_min` | Done |
 | **Single watershed** | Subdivide watershed into subbasins, route with Muskingum or lag, aggregate | Medium–High |
-| **Tc simplified** | Trace longest flow path, split into sheet/shallow/channel, use TR-55 formulas per segment | Medium |
+| ~~**Tc simplified**~~ | ~~Trace longest flow path, split into sheet/shallow/channel, use TR-55 formulas per segment~~ **Implemented:** path-based Tc with sheet/shallow/channel segments | Done |
 | **Other loss methods** | Add Green-Ampt, Initial & Constant, etc. as alternatives to SCS CN | Medium |
 | **Other transforms** | Add Clark or Snyder UH as alternatives to SCS UH | Medium |
 | **2D routing** | Replace HAND with 2D diffusive wave or full shallow-water routing | High |
@@ -457,7 +460,7 @@ Interpolate for intermediate t/Tp. Time base ≈ 5×Tp.
 
 1. ~~**Base flow**~~ — **Done:** `base_flow_m3s`, `base_flow_recession_k_min`; constant or exponential recession.
 2. **Alternative loss/transform** — Add optional methods (e.g. Green-Ampt, Clark) behind a method selector.
-3. **Full Tc** — Trace longest flow path, segment into sheet/shallow/channel, apply TR-55 formulas.
+3. ~~**Full Tc**~~ — **Done:** Trace longest flow path, segment into sheet/shallow/channel, apply TR-55 formulas.
 4. **Subbasins** — Subdivide watershed, route with Muskingum or lag, aggregate hydrographs.
 
 ---

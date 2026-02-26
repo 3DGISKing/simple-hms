@@ -1,0 +1,15 @@
+---
+description: Remember to update FAQ.md when Q&A content arises
+alwaysApply: true
+---
+
+# FAQ Updates
+
+When the user asks a question that yields a useful, reusable answer (e.g., "what is X?", "how does Y work?"), **offer to add it to FAQ.md** or add it when the user says "update faq".
+
+**When to update:**
+- User explicitly requests: "update faq", "add to faq", "update faq with below Q/A"
+- User asks a conceptual or how-to question that would help future users
+- Another chat implements a feature that should be documented (e.g., base flow, new parameters)
+
+**Format:** Add a new `### Question?` heading and a concise answer, placed logically among existing entries (group related topics: baseflow, SCS/TR-55, patterns, etc.).

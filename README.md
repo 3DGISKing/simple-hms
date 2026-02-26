@@ -149,7 +149,7 @@ This project follows the same conceptual model as HEC-HMS Hypothetical Storm. Th
 | HEC-HMS Component | This Project | Notes |
 |-------------------|--------------|-------|
 | **Loss** | SCS Curve Number (`runoff.py`) | Same method: S = 25400/CN − 254, Ia = 0.2S, cumulative excess via (P − Ia)²/(P − Ia + S). Area-weighted CN from raster within watershed. |
-| **Transform** | SCS Unit Hydrograph (`unit_hydrograph.py`) + convolution | Same method: dimensionless SCS UH, lag from Tc (TR-55), peak rate factor (default 484). Convolve excess rainfall with UH to get direct runoff. |
+| **Transform** | SCS Unit Hydrograph (`unit_hydrograph.py`) + convolution | Same method: dimensionless SCS UH, lag from Tc (path-based TR-55: longest flow path, sheet/shallow/channel segments), peak rate factor (default 484). Convolve excess rainfall with UH to get direct runoff. |
 | **Base Flow** | Optional (`base_flow_m3s`, `base_flow_recession_k_min`) | Constant or exponential recession base flow added to direct runoff. |
 
 ### Differences
@@ -161,7 +161,7 @@ This project follows the same conceptual model as HEC-HMS Hypothetical Storm. Th
 ### Limitations
 
 - **Single watershed** — no subbasin routing; one lumped CN and one UH for the whole catchment.
-- **Tc simplified** — TR-55-style estimate from area/slope; no full flow-path tracing.
+- **Tc** — path-based TR-55: traces longest flow path, segments into sheet/shallow/channel, applies TR-55 formulas per segment; falls back to area-based estimate if path tracing unavailable.
 - **No Green-Ampt / other loss methods** — SCS CN only.
 - **No Clark / Snyder / other transforms** — SCS UH only.
 - **HAND flood map** — assumes simple rating curve or fixed stage; no 2D routing.

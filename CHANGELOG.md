@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Path-based time of concentration (Tc)** — Traces longest flow path from watershed boundary to outlet; segments into sheet (≤100 m), shallow concentrated (next 300 m), and channel flow; applies TR-55 formulas per segment. Falls back to area-based estimate when fdir/acc/transform/outlet unavailable. Optional `shallow_paved` and `channel_r_m` parameters.
+
+### Changed
+
+- **Tc computation** — `compute_time_of_concentration` now accepts optional `fdir`, `acc`, `transform`, `snapped_outlet`, `stream_threshold` for path-based TR-55 Tc; hydrograph pipeline passes these when available.
+- Documentation updates: README, PLAN, FAQ — Tc implementation, limitations, comparison table
+
+## [1.1.0] - 2026-02-26
+
+### Added
+
 - **Base flow** — Optional constant or exponential recession base flow in `compute_design_hydrograph` and `compute_design_flood_map` via `base_flow_m3s` and `base_flow_recession_k_min` parameters
 - Base flow inputs in GUI: "Base flow (m³/s, 0=none)" and "Base recession k (min, blank=constant)"
 - Base flow visualization in hydrograph plot (dashed brown line for base flow, solid red for total flow)
