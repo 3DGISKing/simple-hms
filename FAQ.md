@@ -69,6 +69,50 @@ If flow direction, accumulation, transform, or outlet are missing, the tool fall
 
 **In this tool:** TR-55 is used for rainfall temporal distributions, SCS runoff (excess rainfall from CN), Tc and lag from flow-path segments (sheet, shallow concentrated, channel flow), and unit hydrograph peak rate factor and dimensionless ordinates. Tc is computed by tracing the longest flow path from watershed boundary to outlet, segmenting into sheet (≤100 m), shallow (next 300 m), and channel flow, and applying TR-55 formulas per segment. A TR-55 estimate is thus a value or method derived from that NRCS manual (e.g., Tc, lag, CN-based runoff, or UH parameters).
 
+### What are loss methods?
+
+**Loss methods** are procedures that estimate how much rainfall is **lost** (does not become direct runoff). They partition total rainfall into losses (infiltration, interception, depression storage, etc.) and **excess rainfall** (effective rainfall) that produces runoff.
+
+**Common methods:** SCS Curve Number (empirical, S = 25400/CN − 254, Ia = 0.2S); Green-Ampt (physically based infiltration); Initial & Constant (constant loss rate after initial abstraction); Deficit and Constant; Smith Parlange.
+
+**In this tool:** Only **SCS Curve Number** is implemented. Green-Ampt and Initial & Constant are listed as possible future additions in the plan.
+
+### What is transform (in Possible Updates)?
+
+**Transform** is the step that converts **excess rainfall** into a **runoff hydrograph** (discharge vs. time). Pipeline: (1) **Loss** — rainfall → excess rainfall; (2) **Transform** — excess rainfall → direct runoff hydrograph.
+
+**Current method:** **SCS Unit Hydrograph** — dimensionless UH scaled by area, lag, and peak rate factor, convolved with excess rainfall.
+
+**Possible updates (PLAN.md):** Add alternative transform methods: **Clark** (time–area with storage routing) and **Snyder** (synthetic UH with different peak/time parameters). These would be selectable (e.g. `transform='scs' | 'clark' | 'snyder'`) and produce different hydrograph shapes and timing.
+
+### What parameters would Clark or Snyder UH require?
+
+**Yes.** Both need more parameters than SCS UH.
+
+**Clark:** Tc (time of concentration), R (storage coefficient). Can be estimated from basin geometry (L, Lc, slope) or regional regression equations.
+
+**Snyder:** Ct (time coefficient, ~1.35–1.65 metric), Cp (peak coefficient, ~0.56–0.69), L (main channel length), Lc (length from outlet to watershed centroid). Lag: tl = Ct(L×Lc)^0.3. Ct and Cp are empirical and vary by region, land use, and topography.
+
+**Compared with SCS UH:** SCS uses area, Tc (or lag), and PRF (often default 484)—no Ct, Cp, or R. Clark and Snyder would require these inputs (or regional equations) if added.
+
+### Is the current transform (SCS UH) better than Clark or Snyder?
+
+**It depends.** Each has trade-offs.
+
+**SCS UH advantages:** Fewer inputs (area, Tc, PRF); Tc is already computed from the DEM; no Ct, Cp, R, or Lc; standard for US design (TR-55, NRCS); works well for ungaged watersheds with only DEM, CN, and P2.
+
+**Clark/Snyder advantages:** Clark models storage (R) explicitly; Snyder’s Ct/Cp can be calibrated regionally; both can produce different hydrograph shapes when needed.
+
+**Summary:** SCS is usually better when you have limited data and want simplicity. Clark or Snyder are useful when you have regional parameters or calibration data, or need a different hydrograph shape.
+
+### What parameters would Green-Ampt require?
+
+**Yes.** Green-Ampt is physically based and needs soil and moisture parameters instead of a single curve number.
+
+**Typical parameters:** Saturated hydraulic conductivity (Ks), porosity (θs), initial moisture content (θi), wetting front suction head (ψf). These come from lab/field data or soil databases (e.g., USDA soil texture classes).
+
+**Compared with SCS CN:** SCS CN uses one parameter (CN) from land use and soil type. Green-Ampt would require additional inputs (Ks, θs, θi, ψf) and possibly a soil map or lookup table. SCS CN stays simpler when only a CN map is available.
+
 ### What is SCS Type I?
 
 **SCS Type I** is one of four NRCS 24-hour rainfall temporal distributions (I, IA, II, III). It defines how a given storm depth is distributed over time—i.e., the hyetograph shape.
@@ -140,3 +184,21 @@ A **rating curve** is the relationship between **discharge (Q)** and **stage (wa
 **Requirements:** A rating curve (Q vs stage) or direct stage input. Use `rating_curve_rectangular` or `rating_curve_trapezoidal` from `src.rating_curve` to derive Q-stage from Manning's equation for simple channel geometries. HAND assumes static stage—no routing of the flood wave. Suitable for design flood extent, not dynamic inundation timing.
 
 **For full hydraulic modeling:** Use the output hydrograph as input to HEC-RAS 1D/2D, LISFLOOD-FP, or ANUGA for routing, backwater, and dynamic inundation.
+
+### What is 2D diffusive wave?
+
+**2D diffusive wave** is a simplified form of the 2D shallow water equations used for flood inundation. It assumes flow is driven by water surface slope balanced by friction; inertial terms (acceleration, advection) are neglected.
+
+**Characteristics:** Simpler and more stable than full shallow water; suitable for slow, shallow floodplain flow; less accurate for fast flows (e.g., dam breaks). Used in LISFLOOD-FP, ANUGA, and similar models.
+
+**Compared with HAND (current tool):** HAND uses a static water level; inundation = cells where HAND < H; no routing. 2D diffusive wave routes the flood wave over time through the domain and can represent backwater and flow direction changes. PLAN.md lists 2D diffusive wave as a possible replacement for HAND to enable dynamic flood routing.
+
+### Which is better: full shallow water or 2D diffusive wave?
+
+**It depends on the application.** Neither is universally better.
+
+**2D diffusive wave:** Simpler, more stable, larger timesteps, less compute; suitable for slow floodplain flow. Less accurate for fast flows. Use for design flood extent, slow overland flow, gentle terrain.
+
+**Full shallow water (dynamic wave):** Includes inertia and advection; better for fast flows and steep slopes. More complex, can be less stable, needs smaller timesteps and more compute. Use for dam breaks, steep channels, fast flows.
+
+**Summary:** For typical design flood mapping, **2D diffusive wave** is usually sufficient and easier to run. Use **full shallow water** when inertia matters (e.g., dam breaks, fast flows).
