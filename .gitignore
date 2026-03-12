@@ -6,3 +6,5 @@
 /outputs/stream_network.geojson
 /outputs/watershed.geojson
 /outputs/subbasins.geojson
+/data/cn.tif.aux.xml
+/data/dem.tif.aux.xml
